@@ -1,4 +1,4 @@
-"""cursor_project package init"""
+"""visit_project package init"""
 
 __all__ = [
     'site_scheduler',

@@ -7,11 +7,11 @@
 import csv
 import math
 import logging
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import defaultdict
-import json
+from functools import lru_cache
 
 
 @dataclass
@@ -32,6 +32,8 @@ class SiteScheduler:
     
     # 可配置常量（可通过CLI传入覆盖）
     DEFAULT_MAX_PAIR_DISTANCE = 5.0  # 公里
+    EARTH_RADIUS_KM = 6371.0  # 地球半径（公里）
+    DEFAULT_TEAM_COUNT = 1  # 每个城市分包商队伍数量
 
     def __init__(self, sites: List[Site], start_date: Optional[str] = None, max_pair_distance: Optional[float] = None):
         """
@@ -40,10 +42,15 @@ class SiteScheduler:
         Args:
             sites: 站点列表
             start_date: 开始日期（格式：YYYY-MM-DD），默认为今天
+            max_pair_distance: 最大配对距离（公里）
         """
         self.sites = sites
         if start_date:
-            self.current_date = datetime.strptime(start_date, "%Y-%m-%d")
+            try:
+                self.current_date = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError as e:
+                logging.warning(f"无效的日期格式 {start_date}，使用当前日期: {e}")
+                self.current_date = datetime.now()
         else:
             self.current_date = datetime.now()
         # 最大配对距离（公里）
@@ -55,7 +62,11 @@ class SiteScheduler:
             self.sites_by_city_subcon[site.city][site.subcon].append(site)
         
         # 计算每个城市的中心点（所有站点的平均经纬度）
-        self.city_centers = {}
+        self.city_centers = self._calculate_city_centers()
+    
+    def _calculate_city_centers(self) -> Dict[str, Tuple[float, float]]:
+        """计算所有城市的中心点"""
+        city_centers = {}
         for city, subcon_dict in self.sites_by_city_subcon.items():
             all_city_sites = []
             for sites_list in subcon_dict.values():
@@ -63,7 +74,8 @@ class SiteScheduler:
             if all_city_sites:
                 center_lat = sum(s.latitude for s in all_city_sites) / len(all_city_sites)
                 center_lon = sum(s.longitude for s in all_city_sites) / len(all_city_sites)
-                self.city_centers[city] = (center_lat, center_lon)
+                city_centers[city] = (center_lat, center_lon)
+        return city_centers
     
     def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """
@@ -71,8 +83,6 @@ class SiteScheduler:
 
         明确接受四个浮点参数：`lat1, lon1, lat2, lon2`。
         """
-        R = 6371.0  # 地球半径（公里）
-
         lat1_rad = math.radians(lat1)
         lat2_rad = math.radians(lat2)
         delta_lat = math.radians(lat2 - lat1)
@@ -83,7 +93,7 @@ class SiteScheduler:
              math.sin(delta_lon / 2) ** 2)
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-        return R * c
+        return self.EARTH_RADIUS_KM * c
 
     def distance_between_sites(self, site1: Site, site2: Site) -> float:
         """
@@ -210,18 +220,17 @@ class SiteScheduler:
             
             # 按分包商处理
             for subcon, sites in subcon_dict.items():
-                # 假设每个城市分包商队伍数量始终為1
-                team_count = 1
-                
                 # 获取未分配的站点
                 unassigned_sites = [s for s in sites if not s.date]
                 
                 if not unassigned_sites:
                     continue
                 
+                logging.debug(f"为城市 {city} 的分包商 {subcon} 分配 {len(unassigned_sites)} 个站点")
+                
                 # 步骤2：找出所有尽可能多的5km内的成对站点
                 # 优先数量多，然后距离近
-                pairs = self._find_all_pairs(unassigned_sites, max_distance=5.0)
+                pairs = self._find_all_pairs(unassigned_sites, max_distance=self.max_pair_distance)
                 
                 # 创建站点对集合（用于快速查找）
                 paired_site_ids = set()
@@ -241,6 +250,10 @@ class SiteScheduler:
                     # 找出距离城市中心最近的未分配站点
                     unassigned_sites.sort(key=lambda s: self._distance_to_center(s, city))
                     nearest_site = unassigned_sites[0]
+                    
+                    # 初始化 team_index（如果还没有）
+                    if not hasattr(nearest_site, 'team_index'):
+                        nearest_site.team_index = 0
                     
                     # 判断这个站点是否属于成对站点
                     nearest_site_id = self._get_site_id(nearest_site)
@@ -282,8 +295,6 @@ class SiteScheduler:
                             # 配对站点已被分配，只访问当前站点
                             date_str = current_date.strftime("%Y-%m-%d")
                             nearest_site.date = date_str
-                            if not hasattr(nearest_site, 'team_index'):
-                                nearest_site.team_index = 0
                             unassigned_sites.remove(nearest_site)
                             paired_site_ids.discard(nearest_site_id)
                             if nearest_site_id in site_to_pair:
@@ -292,8 +303,6 @@ class SiteScheduler:
                         # 不属于成对站点，只访问这一个站点
                         date_str = current_date.strftime("%Y-%m-%d")
                         nearest_site.date = date_str
-                        if not hasattr(nearest_site, 'team_index'):
-                            nearest_site.team_index = 0
                         unassigned_sites.remove(nearest_site)
                     
                     # 移动到下一天
@@ -413,7 +422,7 @@ def save_sites_to_csv(sites: List[Site], filepath: str):
             ])
 
 
-def generate_map(sites: List[Site], output_file: str = 'site_map.html', scheduler: SiteScheduler = None):
+def generate_map(sites: List[Site], output_file: str = 'site_map.html', scheduler: Optional[SiteScheduler] = None):
     """
     生成站点访问计划地图
     每个队伍用不同颜色标记，显示按日期顺序的路线
@@ -478,24 +487,23 @@ def generate_map(sites: List[Site], output_file: str = 'site_map.html', schedule
         'gray', 'black', 'lightgray'
     ]
 
-    # 为每个分包商+城市组合分配颜色
-    team_color_map = {}
+    # 为每个分包商分配颜色（跨城市保持一致）
+    subcon_color_map = {}
     team_counter = 0
 
+    # 先收集所有分包商（按字母顺序排序以保证颜色分配一致性）
+    all_subcons = sorted(set(site.subcon for site in sites if site.date))
+    
+    # 为每个分包商分配颜色（仅按subcon，不考虑城市）
+    for subcon in all_subcons:
+        subcon_color_map[subcon] = team_colors[team_counter % len(team_colors)]
+        team_counter += 1
+    
     # 按日期和分包商分组站点
     sites_by_date_subcon_city = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for site in sites:
         if site.date:
             sites_by_date_subcon_city[site.date][site.subcon][site.city].append(site)
-
-    # 为每个分包商+城市组合分配颜色
-    for date in sorted(sites_by_date_subcon_city.keys()):
-        for subcon in sites_by_date_subcon_city[date].keys():
-            for city in sites_by_date_subcon_city[date][subcon].keys():
-                team_key = f"{subcon}_{city}"
-                if team_key not in team_color_map:
-                    team_color_map[team_key] = team_colors[team_counter % len(team_colors)]
-                    team_counter += 1
 
     # 使用站点的唯一标识符作为key
     def get_site_key(site):
@@ -550,7 +558,7 @@ def generate_map(sites: List[Site], output_file: str = 'site_map.html', schedule
         order = visit_order.get(get_site_key(site), 0)
         day_num = date_to_day_number.get(site.date, 0)
         team_key = f"{site.subcon}_{site.city}"
-        team_color = team_color_map.get(team_key, 'gray')
+        team_color = subcon_color_map.get(site.subcon, 'gray')
         
         # 根据EasyAccess选择标记颜色（站点本身的颜色）
         easy_access_lower = site.easy_access.lower() if site.easy_access else ''
@@ -600,8 +608,8 @@ def generate_map(sites: List[Site], output_file: str = 'site_map.html', schedule
     
     # 为每个队伍绘制路线
     for team_key, teams_dict in teams_routes_detailed.items():
-        team_color = team_color_map.get(team_key, 'gray')
         subcon, city = team_key.split('_', 1)
+        team_color = subcon_color_map.get(subcon, 'gray')
         
         # 为每个队伍（同一分包商的不同队伍）绘制路线
         for team_idx, dates_dict in teams_dict.items():
@@ -673,12 +681,11 @@ def generate_map(sites: List[Site], output_file: str = 'site_map.html', schedule
     legend_items.append('<h4 style="margin: 0 0 10px 0;">图例</h4>')
     legend_items.append('<p style="margin: 5px 0;"><span style="color: green; font-size: 18px;">●</span> EasyAccess站点</p>')
     legend_items.append('<p style="margin: 5px 0;"><span style="color: #FFD700; font-size: 18px;">●</span> 其他站点</p>')
-    legend_items.append('<p style="margin: 10px 0 5px 0;"><strong>队伍路线颜色:</strong></p>')
+    legend_items.append('<p style="margin: 10px 0 5px 0;"><strong>队伍路线颜色 (跨城市统一):</strong></p>')
     
-    # 为每个队伍添加图例
-    for team_key, color in sorted(team_color_map.items()):
-        subcon, city = team_key.split('_', 1)
-        legend_items.append(f'<p style="margin: 3px 0;"><span style="color: {color}; font-size: 18px;">━</span> {subcon} ({city})</p>')
+    # 为每个分包商添加图例（按subcon，跨城市颜色相同）
+    for subcon, color in sorted(subcon_color_map.items()):
+        legend_items.append(f'<p style="margin: 3px 0;"><span style="color: {color}; font-size: 18px;">━</span> {subcon}</p>')
     
     legend_html = f'''
     <div style="position: fixed; 
@@ -688,7 +695,15 @@ def generate_map(sites: List[Site], output_file: str = 'site_map.html', schedule
     {''.join(legend_items)}
     </div>
     '''
-    m.get_root().html.add_child(folium.Element(legend_html))
+    
+    # 添加图例到地图
+    try:
+        m.get_root().html.add_child(folium.Element(legend_html))  # type: ignore
+    except (AttributeError, TypeError):
+        # 如果上述方法失败，使用备选方法
+        m._repr_html_()
+        figure_root = m.get_root()
+        figure_root.html = figure_root.html + legend_html  # type: ignore
     
     # 保存地图
     m.save(output_file)
