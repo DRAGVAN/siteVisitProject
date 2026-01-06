@@ -14,36 +14,36 @@ pip install -r requirements.txt
 
 运行示例
 
-仓库提供了一个便捷脚本 `scripts/run_scheduler.py`：
+仓库提供了一个便捷脚本 `scripts/run_scheduler.py`（推荐以包方式运行）：
 
 ```bash
 # 基本用法（位置参数）
-python3 scripts/run_scheduler.py <input.csv> <output.csv> <map.html> [start_date] [max_pair_distance]
+python -m scripts.run_scheduler <input.csv> <output.csv> <map.html> [start_date] [max_pair_distance]
 
 # 使用选项参数
-python3 scripts/run_scheduler.py <input.csv> <output.csv> <map.html> [--start-date DATE] [--max-distance DISTANCE]
+python -m scripts.run_scheduler <input.csv> <output.csv> <map.html> [--start-date DATE] [--max-distance DISTANCE]
 
 # 查看帮助
-python3 scripts/run_scheduler.py --help
+python -m scripts.run_scheduler --help
 ```
 
 示例（位置参数格式）：
 
 ```bash
-python3 scripts/run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0
+python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0
 ```
 
 示例（选项参数格式）：
 
 ```bash
 # 使用长选项
-python3 scripts/run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html --start-date 2025-01-01 --max-distance 5.0
+python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html --start-date 2025-01-01 --max-distance 5.0
 
 # 使用短选项
-python3 scripts/run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html -s 2025-01-01 -d 5.0
+python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html -s 2025-01-01 -d 5.0
 
 # 启用详细日志
-python3 scripts/run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0 -v
+python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0 -v
 ```
 
 说明：
@@ -66,7 +66,7 @@ pip install folium
 - 想要查看详细的运行日志，使用 `-v` 或 `--verbose` 选项：
 
 ```bash
-python3 scripts/run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 -v
+python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 -v
 ```
 
 - 脚本支持位置参数和选项参数的混合使用，选项参数会覆盖对应的位置参数。

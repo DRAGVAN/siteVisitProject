@@ -2,17 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 便捷运行脚本（位于 scripts/）
-使用方法: python3 run_scheduler.py [options]
+推荐包方式运行：
+    python -m scripts.run_scheduler [options]
 """
 
 import sys
 import argparse
 import logging
 from pathlib import Path
-
-# Ensure project root is on sys.path when running this script directly
-# so sibling package `visit_project` can be imported.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from visit_project.site_scheduler import (
     load_sites_from_csv,
@@ -36,9 +33,9 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python3 run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0
-  python3 run_scheduler.py ecuador_sites.csv scheduled_sites.csv site_map.html --start-date 2025-01-01 --max-distance 5.0
-  python3 run_scheduler.py --help
+    python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html 2025-01-01 5.0
+    python -m scripts.run_scheduler ecuador_sites.csv scheduled_sites.csv site_map.html --start-date 2025-01-01 --max-distance 5.0
+    python -m scripts.run_scheduler --help
         """
     )
     
